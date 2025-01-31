@@ -3287,27 +3287,126 @@ class MainApp:
             st.warning("System resources are running high!")
 
     def show_login_page(self):
-        """Display the login interface."""
-        st.subheader("Login")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
+        """Display the login interface with registration option."""
+        if 'page' not in st.session_state:
+            st.session_state.page = "login"
             
-            if st.button("Login"):
-                if self.authenticate_user(email, password):
-                    st.success("Login successful!")
-                    st.session_state.logged_in = True
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials!")
-        
-        with col2:
-            if st.button("Register as Student"):
-                st.session_state.page = "register"
+        if st.session_state.page == "register":
+            self.show_registration_page()
+            
+            # Add a "Back to Login" button
+            if st.button("Back to Login"):
+                st.session_state.page = "login"
                 st.rerun()
+                
+        else:  # Login page
+            st.subheader("Login")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                
+                if st.button("Login"):
+                    if self.authenticate_user(email, password):
+                        st.success("Login successful!")
+                        st.session_state.logged_in = True
+                        st.rerun()
+                    else:
+                        st.error("Invalid credentials!")
+            
+            with col2:
+                st.write("New student?")
+                if st.button("Register as Student"):
+                    st.session_state.page = "register"
+                    st.rerun()
+
+    def show_registration_page(self):
+        """Display and handle student registration form."""
+        st.header("Student Registration")
+        
+        with st.form("registration_form"):
+            # Personal Information
+            st.subheader("Personal Information")
+            name = st.text_input("Full Name*")
+            email = st.text_input("Email Address*")
+            phone = st.text_input("Phone Number*")
+            
+            # Programme Selection
+            st.subheader("Programme Information")
+            programmes = self.get_all_programmes()
+            programme = st.selectbox("Select Programme*", [""] + programmes)
+            
+            # Get levels for selected programme
+            levels = ["Level 100", "Level 200", "Level 300", "Level 400"]  # You can make this dynamic
+            level = st.selectbox("Select Level*", [""] + levels)
+            
+            # Form submission
+            submitted = st.form_submit_button("Register")
+            
+            if submitted:
+                if not all([name, email, phone, programme, level]):
+                    st.error("Please fill in all required fields.")
+                    return
+                
+                # Validate email format
+                if not DataValidator.validate_email(email):
+                    st.error("Please enter a valid email address.")
+                    return
+                
+                # Validate phone format
+                if not DataValidator.validate_phone(phone):
+                    st.error("Please enter a valid phone number.")
+                    return
+                
+                try:
+                    # Get programme_id from programme name
+                    with self.db_manager.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT id FROM programmes WHERE name = ?", (programme,))
+                        programme_id = cursor.fetchone()[0]
+                        
+                        # Check if email already exists
+                        cursor.execute("SELECT id FROM students WHERE email = ?", (email,))
+                        if cursor.fetchone():
+                            st.error("This email address is already registered.")
+                            return
+                        
+                        # Insert new student
+                        cursor.execute("""
+                            INSERT INTO students (name, email, phone, programme_id, level, status)
+                            VALUES (?, ?, ?, ?, ?, 'active')
+                        """, (name, email, phone, programme_id, level))
+                        
+                        # Send welcome email
+                        welcome_subject = "Welcome to Professional Programmes"
+                        welcome_message = f"""
+                            Dear {name},
+                            
+                            Welcome to our Professional Programmes! Your registration was successful.
+                            
+                            Programme: {programme}
+                            Level: {level}
+                            
+                            You can now log in to your student portal using your email address.
+                            
+                            Best regards,
+                            Administration Team
+                        """
+                        
+                        self.email_manager.send_email(email, welcome_subject, welcome_message)
+                        
+                        st.success("Registration successful! You can now log in with your email address.")
+                        
+                        # Add a login button
+                        if st.button("Go to Login"):
+                            st.session_state.page = "login"
+                            st.rerun()
+                            
+                except Exception as e:
+                    logging.error(f"Registration error: {str(e)}")
+                    st.error("An error occurred during registration. Please try again.")
 
     def show_main_interface(self):
         """Display the main interface based on user role."""
