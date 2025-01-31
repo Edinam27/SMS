@@ -1,0 +1,36 @@
+# config/config.yaml
+
+# Database Configuration
+database:
+  db_path: "students_management.db"
+  backup_path: "backups"
+  max_connections: 20
+
+# Email Configuration
+email:
+  smtp_server: "smtp.gmail.com"
+  smtp_port: 587
+  sender_email: "eddy.icy.doo@gmail.com"  # Add your email
+  sender_password: "obsbvdmqugbbybkp"  # Add your password
+
+# Security Configuration
+security:
+  jwt_secret: "your-jwt-secret-key"  # Change this in production
+  session_timeout: 30
+  max_login_attempts: 3
+
+# Firebase Configuration
+firebase:
+  fcm_api_key: "your-fcm-api-key"  # Add your Firebase Cloud Messaging API key
+  project_id: "your-project-id"
+
+# Mobile Integration
+mobile:
+  enable_push_notifications: true
+  notification_icon: "app_icon"
+
+# System Settings
+system:
+  timezone: "UTC"
+  log_level: "INFO"
+  enable_debug: false
