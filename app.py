@@ -2704,6 +2704,203 @@ logging.basicConfig(
     filename='system.log'
 )
 
+class StudentRegistration:
+    def __init__(self, db_manager, email_manager):
+        """Initialize registration component with database and email managers."""
+        self.db_manager = db_manager
+        self.email_manager = email_manager
+
+    def show_registration_form(self):
+        st.title("Student Registration")
+        
+        # Create two columns - one for the form and one for the login button
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            with st.form("registration_form"):
+                name = st.text_input("Full Name")
+                email = st.text_input("Email")
+                phone = st.text_input("Phone Number")
+                programme = st.selectbox("Programme", self.get_programmes())
+                level = st.selectbox("Level", ["100", "200", "300", "400"])
+                
+                submit_button = st.form_submit_button("Register")
+                
+                if submit_button:
+                    self.handle_registration(name, email, phone, programme, level)
+        
+
+
+
+    def process_registration(self, name, email, phone, programme, level):
+        """Process student registration with validation."""
+        try:
+            # Validate required fields
+            if not all([name, email, phone, programme, level]):
+                return {
+                    "success": False,
+                    "message": "Please fill in all required fields."
+                }
+            
+            # Validate email format
+            if not self.validate_email(email):
+                return {
+                    "success": False,
+                    "message": "Please enter a valid email address."
+                }
+            
+            # Validate phone format
+            if not self.validate_phone(phone):
+                return {
+                    "success": False,
+                    "message": "Please enter a valid phone number."
+                }
+            
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if email already exists
+                cursor.execute("SELECT id FROM students WHERE email = ?", (email,))
+                if cursor.fetchone():
+                    return {
+                        "success": False,
+                        "message": "This email address is already registered."
+                    }
+                
+                # Get programme_id
+                cursor.execute("SELECT id FROM programmes WHERE name = ?", (programme,))
+                programme_id = cursor.fetchone()[0]
+                
+                # Insert new student
+                cursor.execute("""
+                    INSERT INTO students (name, email, phone, programme_id, level, status)
+                    VALUES (?, ?, ?, ?, ?, 'active')
+                """, (name, email, phone, programme_id, level))
+                
+                # Send welcome email
+                self.send_welcome_email(name, email, programme, level)
+                
+                return {
+                    "success": True,
+                    "message": "Registration successful! You can now log in with your email address."
+                }
+                
+        except Exception as e:
+            logging.error(f"Registration error: {str(e)}")
+            return {
+                "success": False,
+                "message": "An error occurred during registration. Please try again."
+            }
+
+    def get_programmes(self):
+        """
+        Get list of all available programmes from the database.
+        
+        Returns:
+            List[str]: List of programme names
+        """
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM programmes ORDER BY name")
+                return [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            logging.error(f"Error fetching programmes: {str(e)}")
+            # Return a default list if database query fails
+            return ["No programmes available"]
+
+    def handle_registration(self, name: str, email: str, phone: str, programme: str, level: str):
+        """
+        Handle the student registration process.
+        
+        Args:
+            name (str): Student's full name
+            email (str): Student's email address
+            phone (str): Student's phone number
+            programme (str): Selected programme name
+            level (str): Selected study level
+        """
+        if not all([name, email, phone, programme, level]):
+            st.error("Please fill in all required fields.")
+            return
+
+        try:
+            # Validate email format
+            if not self.validate_email(email):
+                st.error("Please enter a valid email address.")
+                return
+
+            # Validate phone format
+            if not self.validate_phone(phone):
+                st.error("Please enter a valid phone number.")
+                return
+
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if email already exists
+                cursor.execute("SELECT id FROM students WHERE email = ?", (email,))
+                if cursor.fetchone():
+                    st.error("This email address is already registered.")
+                    return
+                
+                # Get programme_id
+                cursor.execute("SELECT id FROM programmes WHERE name = ?", (programme,))
+                programme_result = cursor.fetchone()
+                if not programme_result:
+                    st.error("Selected programme is not valid.")
+                    return
+                    
+                programme_id = programme_result[0]
+                
+                # Insert new student
+                cursor.execute("""
+                    INSERT INTO students (name, email, phone, programme_id, level, status)
+                    VALUES (?, ?, ?, ?, ?, 'active')
+                """, (name, email, phone, programme_id, level))
+                
+                conn.commit()
+                
+                # Send welcome email
+                self.send_welcome_email(name, email, programme, level)
+                
+                st.success("Registration successful! You can now log in with your email address.")
+                
+        except Exception as e:
+            logging.error(f"Registration error: {str(e)}")
+            st.error("An error occurred during registration. Please try again.")
+        
+    def validate_email(self, email):
+        """Validate email format."""
+        import re
+        pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+        return bool(re.match(pattern, email))
+
+    def validate_phone(self, phone):
+        """Validate phone number format."""
+        import re
+        pattern = r'^\+?1?\d{9,15}$'
+        return bool(re.match(pattern, phone))
+
+    def send_welcome_email(self, name, email, programme, level):
+        """Send welcome email to newly registered student."""
+        subject = "Welcome to Professional Programmes"
+        message = f"""
+            Dear {name},
+            
+            Welcome to our Professional Programmes! Your registration was successful.
+            
+            Programme: {programme}
+            Level: {level}
+            
+            You can now log in to your student portal using your email address.
+            
+            Best regards,
+            Administration Team
+        """
+        
+        self.email_manager.send_email(email, subject, message)
+
 class AdminPortal:
     def __init__(self, db_manager: DatabaseManager, email_manager: EmailManager):
         """Initialize AdminPortal with database and email managers."""
@@ -3148,28 +3345,52 @@ class ConfigurationManager:
 
 
 class MainApp:
-    
     def __init__(self):
         """Initialize the main application."""
+        # First, setup logging
         self.setup_logging()
-        self.initialize_session_state()
         
-        # Initialize configuration manager
+        # Initialize configuration manager first since other components depend on it
         self.config_manager = ConfigurationManager()
         
-        self.setup_database()
-        self.initialize_managers()
-        
         # Get configurations
+        db_config = self.config_manager.get_database_config()
+        email_config = self.config_manager.get_email_config()
         security_config = self.config_manager.get_security_config()
-        firebase_config = getattr(self.config_manager, 'firebase', {})
+        
+        # Initialize database manager
+        self.db_manager = DatabaseManager(db_config.db_path)
+        
+        # Initialize email manager
+        self.email_manager = EmailManager(
+            smtp_server=email_config.smtp_server,
+            smtp_port=email_config.smtp_port,
+            sender_email=email_config.sender_email,
+            sender_password=email_config.sender_password
+        )
+        
+        # Initialize security manager
+        self.security_manager = SecurityManager()
+        
+        # Initialize session state
+        self.initialize_session_state()
+        
+        # Initialize student registration
+        self.student_registration = StudentRegistration(self.db_manager, self.email_manager)
+        
+        # Initialize other components
+        self.scheduling_system = SchedulingSystem(self.db_manager)
+        self.reporting_system = ReportingSystem(self.db_manager)
+        self.system_monitor = SystemMonitor()
+        self.backup_manager = BackupManager(db_config.db_path)
+        self.cache_manager = CacheManager()
         
         # Initialize mobile integration
+        firebase_config = getattr(self.config_manager, 'firebase', {})
         self.mobile_integration = MobileIntegration({
             'jwt_secret': security_config.jwt_secret,
-            'fcm_api_key': firebase_config.get('fcm_api_key', ''),  # Provide default empty string
+            'fcm_api_key': firebase_config.get('fcm_api_key', '')
         })
-
     def setup_logging(self):
         """Configure logging for the application."""
         logging.basicConfig(
@@ -3240,6 +3461,8 @@ class MainApp:
             st.session_state.user_role = None
         if 'user_id' not in st.session_state:
             st.session_state.user_id = None
+        if 'user_name' not in st.session_state:
+            st.session_state.user_name = None
 
     def setup_database(self):
         """Setup database connection and initialize managers."""
@@ -3268,6 +3491,251 @@ class MainApp:
 
     def run(self):
         """Run the main application."""
+         # Inject custom CSS
+        st.markdown("""
+            <style>
+        /* Base Theme Variables */
+        :root {
+            --primary-color: #2E3192;
+            --secondary-color: #1E88E5;
+            --success-color: #4CAF50;
+            --warning-color: #FFC107;
+            --danger-color: #F44336;
+            --text-color: #333333;
+            --bg-color: #FFFFFF;
+            --sidebar-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E0E0E0;
+            --shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* Global Container Styles */
+        .stApp {
+            background-color: #F5F7FA;
+        }
+
+        .main .block-container {
+            max-width: 1200px;
+            padding: 2rem 1rem;
+            margin: 0 auto;
+        }
+
+        /* Form Controls */
+        .stSelectbox, .stTextInput, .stTextArea {
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .stSelectbox > div,
+        .stTextInput > div,
+        .stTextArea > div {
+            width: 100%;
+        }
+
+        /* Input Fields */
+        .stTextInput > div > div {
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            padding: 0.5rem;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* Select Boxes */
+        .stSelectbox > div > div {
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            max-width: 100%;
+        }
+
+        /* Cards and Containers */
+        .dashboard-card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            margin-bottom: 1rem;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        /* Grid Layout */
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            width: 100%;
+            margin-bottom: 1rem;
+        }
+
+        /* Responsive Tables */
+        .stDataFrame {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .stDataFrame table {
+            min-width: 600px;
+            width: 100%;
+        }
+
+        /* Form Layout */
+        .form-container {
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+            width: 100%;
+        }
+
+        /* Buttons */
+        .stButton > button {
+            width: auto;
+            min-width: 120px;
+            max-width: 100%;
+            padding: 0.5rem 1rem;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .stButton > button:hover {
+            background-color: var(--secondary-color);
+            transform: translateY(-1px);
+        }
+
+        /* Metrics */
+        .stMetric {
+            background: var(--card-bg);
+            padding: 1rem;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            width: 100%;
+        }
+
+        /* Sidebar */
+        .css-1d391kg {
+            width: 250px;
+            max-width: 100%;
+            background-color: var(--sidebar-bg);
+        }
+
+        /* Expander */
+        .streamlit-expander {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            width: 100%;
+        }
+
+        /* File Uploader */
+        .stUploader {
+            width: 100%;
+            max-width: 500px;
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        /* Media Queries */
+        @media screen and (max-width: 768px) {
+            .main .block-container {
+                padding: 1rem 0.5rem;
+            }
+            
+            .dashboard-card {
+                padding: 1rem;
+            }
+            
+            .grid-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .stButton > button {
+                width: 100%;
+            }
+        }
+
+        /* Custom Column Layout */
+        .custom-columns {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            width: 100%;
+        }
+
+        .custom-column {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        /* Status Badges */
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-badge.active {
+            background-color: #E8F5E9;
+            color: #2E7D32;
+        }
+
+        .status-badge.pending {
+            background-color: #FFF3E0;
+            color: #E65100;
+        }
+
+        .status-badge.inactive {
+            background-color: #FFEBEE;
+            color: #C62828;
+        }
+
+        /* Charts and Visualizations */
+        .chart-container {
+            width: 100%;
+            height: 400px;
+            margin-bottom: 1rem;
+        }
+
+        /* Tooltips */
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip .tooltip-text {
+            visibility: hidden;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            padding: 5px;
+            border-radius: 4px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+            </style>
+        """, unsafe_allow_html=True)
+        
         st.title("Professional Programmes Management System")
         
         # Check system health
@@ -3323,90 +3791,7 @@ class MainApp:
                     st.rerun()
 
     def show_registration_page(self):
-        """Display and handle student registration form."""
-        st.header("Student Registration")
-        
-        with st.form("registration_form"):
-            # Personal Information
-            st.subheader("Personal Information")
-            name = st.text_input("Full Name*")
-            email = st.text_input("Email Address*")
-            phone = st.text_input("Phone Number*")
-            
-            # Programme Selection
-            st.subheader("Programme Information")
-            programmes = self.get_all_programmes()
-            programme = st.selectbox("Select Programme*", [""] + programmes)
-            
-            # Get levels for selected programme
-            levels = ["Level 100", "Level 200", "Level 300", "Level 400"]  # You can make this dynamic
-            level = st.selectbox("Select Level*", [""] + levels)
-            
-            # Form submission
-            submitted = st.form_submit_button("Register")
-            
-            if submitted:
-                if not all([name, email, phone, programme, level]):
-                    st.error("Please fill in all required fields.")
-                    return
-                
-                # Validate email format
-                if not DataValidator.validate_email(email):
-                    st.error("Please enter a valid email address.")
-                    return
-                
-                # Validate phone format
-                if not DataValidator.validate_phone(phone):
-                    st.error("Please enter a valid phone number.")
-                    return
-                
-                try:
-                    # Get programme_id from programme name
-                    with self.db_manager.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT id FROM programmes WHERE name = ?", (programme,))
-                        programme_id = cursor.fetchone()[0]
-                        
-                        # Check if email already exists
-                        cursor.execute("SELECT id FROM students WHERE email = ?", (email,))
-                        if cursor.fetchone():
-                            st.error("This email address is already registered.")
-                            return
-                        
-                        # Insert new student
-                        cursor.execute("""
-                            INSERT INTO students (name, email, phone, programme_id, level, status)
-                            VALUES (?, ?, ?, ?, ?, 'active')
-                        """, (name, email, phone, programme_id, level))
-                        
-                        # Send welcome email
-                        welcome_subject = "Welcome to Professional Programmes"
-                        welcome_message = f"""
-                            Dear {name},
-                            
-                            Welcome to our Professional Programmes! Your registration was successful.
-                            
-                            Programme: {programme}
-                            Level: {level}
-                            
-                            You can now log in to your student portal using your email address.
-                            
-                            Best regards,
-                            Administration Team
-                        """
-                        
-                        self.email_manager.send_email(email, welcome_subject, welcome_message)
-                        
-                        st.success("Registration successful! You can now log in with your email address.")
-                        
-                        # Add a login button
-                        if st.button("Go to Login"):
-                            st.session_state.page = "login"
-                            st.rerun()
-                            
-                except Exception as e:
-                    logging.error(f"Registration error: {str(e)}")
-                    st.error("An error occurred during registration. Please try again.")
+        self.student_registration.show_registration_form()
 
     def show_main_interface(self):
         """Display the main interface based on user role."""
